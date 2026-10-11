@@ -15,6 +15,30 @@ internal sealed class Restrictor : IDisposable
 
     private const int DebounceWindowMs = 1500;
 
+    // Одноразовые пропуски: слот → (оружие, до какого момента). Ставит css_restrict_pass —
+    // другой плагин выдаёт игроку оружие, которое иначе под запретом (РПГ в NiposCustomRounds —
+    // подкласс G3SG1, а G3SG1 запрещён всем).
+    private static readonly ConcurrentDictionary<int, (string Weapon, long Until)> Passes = new();
+
+    public static void AddPass(int slot, string weapon, float seconds)
+    {
+        var until = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + (long)(seconds * 1000);
+        Passes[slot] = (weapon, until);
+    }
+
+    private static bool TakePass(int slot, string weapon)
+    {
+        if (!Passes.TryGetValue(slot, out var pass)) return false;
+        if (pass.Until < DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
+        {
+            Passes.TryRemove(slot, out _);
+            return false;
+        }
+        if (!pass.Weapon.Equals(weapon, StringComparison.OrdinalIgnoreCase)) return false;
+        Passes.TryRemove(slot, out _);
+        return true;
+    }
+
     public Restrictor(WeaponRestrict plugin)
     {
         _plugin = plugin;
@@ -78,6 +102,13 @@ internal sealed class Restrictor : IDisposable
         var classname = vdata.Name;
         if (string.IsNullOrWhiteSpace(classname)) { Dbg($"  выход: пустое имя для defindex {econ.ItemDefinitionIndex}"); return HookResult.Continue; }
         Dbg($"  {player.PlayerName}: {classname} (defindex {econ.ItemDefinitionIndex}), способ {(int)hook.GetParam<AcquireMethod>(2)}, ограничения={WeaponRestrict.RestrictionsEnabled}");
+
+        // Пропуск на одну выдачу (css_restrict_pass) — без проверок
+        if (TakePass(player.Slot, classname))
+        {
+            Dbg("  выход: одноразовый пропуск");
+            return HookResult.Continue;
+        }
 
         // Check if this is a knife and knives are disabled
         if (!WeaponRestrict.KnivesEnabled)

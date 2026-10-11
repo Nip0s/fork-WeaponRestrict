@@ -12,7 +12,7 @@ public class WeaponRestrict : BasePlugin, IPluginConfig<RestrictedWeaponsConfig>
 {
     public override string ModuleName => "WeaponRestrict";
     public override string ModuleAuthor => "TICHOJEBEC & Modified";
-    public override string ModuleVersion => "1.8.1";
+    public override string ModuleVersion => "1.8.2";
     public override string ModuleDescription => "Weapon restrictions + knife/decoy control for custom rounds";
 
     public RestrictedWeaponsConfig Config { get; set; } = new();
@@ -70,6 +70,33 @@ public class WeaponRestrict : BasePlugin, IPluginConfig<RestrictedWeaponsConfig>
         RestrictionsEnabled = value != 0;
         command.ReplyToCommand($"[WeaponRestrict] Weapon restrictions: {(RestrictionsEnabled ? "ENABLED" : "DISABLED")}");
         Console.WriteLine($"[WeaponRestrict] Weapon restrictions: {(RestrictionsEnabled ? "ENABLED" : "DISABLED")}");
+    }
+
+    // Command: css_restrict_pass <slot> <weapon> [seconds]
+    // Одноразовый пропуск: следующее получение этого оружия игроком в слоте <slot> в течение
+    // [seconds] (по умолчанию 3) не проверяется. Для плагинов, выдающих оружие сами.
+    [ConsoleCommand("css_restrict_pass", "One-time pass for a player to receive a restricted weapon")]
+    [CommandHelper(minArgs: 2, usage: "<slot> <weapon> [seconds]", whoCanExecute: CommandUsage.SERVER_ONLY)]
+    public void OnRestrictPassCommand(CCSPlayerController? player, CommandInfo command)
+    {
+        if (!int.TryParse(command.GetArg(1), out int slot) || slot < 0 || slot > 63)
+        {
+            command.ReplyToCommand("[WeaponRestrict] Usage: css_restrict_pass <slot> <weapon> [seconds]");
+            return;
+        }
+
+        var weapon = command.GetArg(2).Trim();
+        if (!weapon.StartsWith("weapon_", StringComparison.OrdinalIgnoreCase))
+            weapon = "weapon_" + weapon;
+
+        float seconds = 3f;
+        if (command.ArgCount > 3 && float.TryParse(command.GetArg(3), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var s) && s > 0)
+            seconds = s;
+
+        Restrictor.AddPass(slot, weapon, seconds);
+        if (Config.Debug)
+            Console.WriteLine($"[WeaponRestrict:debug] пропуск: слот {slot}, {weapon}, {seconds} с");
     }
 
     // Command: css_knife_toggle <0|1>
