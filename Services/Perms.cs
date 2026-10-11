@@ -8,7 +8,7 @@ internal static class Perms
 {
     public static bool HasBypass(RestrictedWeaponsConfig cfg, CCSPlayerController player)
     {
-        if (!player.IsValid || player.Connected != PlayerConnectedState.PlayerConnected)
+        if (!player.IsValid || player.Connected != PlayerConnectedState.Connected)
             return false;
 
         var list = cfg.BypassPermissions;

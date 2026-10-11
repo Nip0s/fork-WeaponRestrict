@@ -19,6 +19,7 @@ internal sealed class Restrictor : IDisposable
     {
         _plugin = plugin;
         VirtualFunctions.CCSPlayer_ItemServices_CanAcquireFunc.Hook(OnWeaponCanAcquire, HookMode.Pre);
+        Console.WriteLine("[WeaponRestrict] Хук CCSPlayer_ItemServices::CanAcquire установлен");
     }
 
     public void Dispose()
@@ -48,24 +49,35 @@ internal sealed class Restrictor : IDisposable
         return false;
     }
 
+    private void Dbg(string msg)
+    {
+        if (_plugin.Config.Debug)
+            Console.WriteLine($"[WeaponRestrict:debug] {msg}");
+    }
+
     private HookResult OnWeaponCanAcquire(DynamicHook hook)
     {
+        Dbg("CanAcquire вызван");
         var player = hook.GetParam<CCSPlayer_ItemServices>(0)
             ?.Pawn.Value?.Controller.Value?.As<CCSPlayerController>();
 
         if (player == null || !player.IsValid || !player.PawnIsAlive)
+        {
+            Dbg($"  выход: игрок не найден или мёртв (null={player == null})");
             return HookResult.Continue;
+        }
 
         var econ = hook.GetParam<CEconItemView>(1);
-        if (econ == null) return HookResult.Continue;
+        if (econ == null) { Dbg("  выход: CEconItemView = null"); return HookResult.Continue; }
 
         var vdata = VirtualFunctions
             .GetCSWeaponDataFromKeyFunc
             .Invoke(-1, econ.ItemDefinitionIndex.ToString());
 
-        if (vdata == null) return HookResult.Continue;
+        if (vdata == null) { Dbg($"  выход: нет vdata для defindex {econ.ItemDefinitionIndex}"); return HookResult.Continue; }
         var classname = vdata.Name;
-        if (string.IsNullOrWhiteSpace(classname)) return HookResult.Continue;
+        if (string.IsNullOrWhiteSpace(classname)) { Dbg($"  выход: пустое имя для defindex {econ.ItemDefinitionIndex}"); return HookResult.Continue; }
+        Dbg($"  {player.PlayerName}: {classname} (defindex {econ.ItemDefinitionIndex}), способ {(int)hook.GetParam<AcquireMethod>(2)}, ограничения={WeaponRestrict.RestrictionsEnabled}");
 
         // Check if this is a knife and knives are disabled
         if (!WeaponRestrict.KnivesEnabled)
@@ -98,17 +110,24 @@ internal sealed class Restrictor : IDisposable
         var playerCount = WorldQuery.CountPlayers(cfg, team);
 
         if (!RuleBook.TryGetLimit(cfg, classname, playerCount, team, out var limit))
+        {
+            Dbg($"  выход: правила нет (игроков посчитано {playerCount}, карта {CounterStrikeSharp.API.Server.MapName})");
             return HookResult.Continue;
+        }
 
         var isInNoBypassList = cfg.NoBypassWeapons?.Any(w =>
             w.Equals(classname, StringComparison.OrdinalIgnoreCase)) ?? false;
 
         var hardBan = (limit == 0 && !cfg.BypassAllowedWhenLimitIsZero) || isInNoBypassList;
         if (!hardBan && Perms.HasBypass(cfg, player))
+        {
+            Dbg("  выход: у игрока обход (права)");
             return HookResult.Continue;
+        }
 
         var currentCount = WorldQuery.CountWeaponAcrossPlayers(cfg, classname, team);
         var violates = limit == 0 || (limit != -1 && currentCount >= limit);
+        Dbg($"  лимит {limit}, уже на руках {currentCount}, игроков {playerCount}, жёсткий запрет {hardBan} → {(violates ? "ЗАПРЕТ" : "можно")}");
         if (!violates) return HookResult.Continue;
 
         var steam = player.SteamID;

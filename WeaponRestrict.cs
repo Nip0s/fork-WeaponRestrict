@@ -12,7 +12,7 @@ public class WeaponRestrict : BasePlugin, IPluginConfig<RestrictedWeaponsConfig>
 {
     public override string ModuleName => "WeaponRestrict";
     public override string ModuleAuthor => "TICHOJEBEC & Modified";
-    public override string ModuleVersion => "1.8";
+    public override string ModuleVersion => "1.8.1";
     public override string ModuleDescription => "Weapon restrictions + knife/decoy control for custom rounds";
 
     public RestrictedWeaponsConfig Config { get; set; } = new();

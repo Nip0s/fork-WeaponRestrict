@@ -14,6 +14,8 @@ public class RestrictedWeaponsConfig : BasePluginConfig
     [JsonPropertyName("NoBypassWeapons")] public List<string> NoBypassWeapons { get; set; } = new();
 
     [JsonPropertyName("BlockSound")] public string? BlockSound { get; set; } = null;
+    // Подробный лог каждой проверки в консоль сервера (разбор «ограничение не работает»)
+    [JsonPropertyName("Debug")] public bool Debug { get; set; } = false;
     [JsonPropertyName("Phrases")] public PhrasesSection Phrases { get; set; } = new();
     [JsonPropertyName("DefIndexToClass")] public Dictionary<int, string> DefIndexToClass { get; set; } = WeaponDefaults.DefaultDefIndexToClass();
     [JsonPropertyName("Rules")] public Dictionary<string, Dictionary<int, Dictionary<string, int>>> Rules { get; set; } = WeaponDefaults.DefaultRules();

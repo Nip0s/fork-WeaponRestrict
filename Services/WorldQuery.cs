@@ -11,7 +11,7 @@ internal static class WorldQuery
         int count = 0;
         foreach (var p in Utilities.GetPlayers())
         {
-            if (!p.IsValid || p.Connected != PlayerConnectedState.PlayerConnected) continue;
+            if (!p.IsValid || p.Connected != PlayerConnectedState.Connected) continue;
 
             var pawn = p.PlayerPawn?.Value;
             if (pawn == null || !pawn.IsValid) continue;
@@ -30,7 +30,7 @@ internal static class WorldQuery
         int count = 0;
         foreach (var p in Utilities.GetPlayers())
         {
-            if (!p.IsValid || p.Connected != PlayerConnectedState.PlayerConnected) continue;
+            if (!p.IsValid || p.Connected != PlayerConnectedState.Connected) continue;
 
             var pawn = p.PlayerPawn?.Value;
             if (pawn == null || !pawn.IsValid) continue;
