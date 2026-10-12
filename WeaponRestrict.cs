@@ -12,7 +12,7 @@ public class WeaponRestrict : BasePlugin, IPluginConfig<RestrictedWeaponsConfig>
 {
     public override string ModuleName => "WeaponRestrict";
     public override string ModuleAuthor => "TICHOJEBEC & Modified";
-    public override string ModuleVersion => "1.8.3";
+    public override string ModuleVersion => "1.8.4";
     public override string ModuleDescription => "Weapon restrictions + knife/decoy control for custom rounds";
 
     public RestrictedWeaponsConfig Config { get; set; } = new();
@@ -97,6 +97,24 @@ public class WeaponRestrict : BasePlugin, IPluginConfig<RestrictedWeaponsConfig>
         Restrictor.AddPass(slot, weapon, seconds);
         if (Config.Debug)
             Console.WriteLine($"[WeaponRestrict:debug] пропуск: слот {slot}, {weapon}, {seconds} с");
+    }
+
+    // Command: css_restrict_probe — куда на самом деле смотрит хук CanAcquire (отладка конфликта с utils.so)
+    [ConsoleCommand("css_restrict_probe", "Debug: where CanAcquire hook points")]
+    [CommandHelper(whoCanExecute: CommandUsage.SERVER_ONLY)]
+    public void OnRestrictProbeCommand(CCSPlayerController? player, CommandInfo command)
+    {
+        // css_restrict_probe <hex-адрес> [длина] — дамп памяти; без аргументов — разбор CanAcquire
+        if (command.ArgCount > 1 && ulong.TryParse(command.GetArg(1).Replace("0x", "").Replace("0X", ""),
+                System.Globalization.NumberStyles.HexNumber, null, out var addr))
+        {
+            var len = command.ArgCount > 2 && int.TryParse(command.GetArg(2), out var l) ? Math.Clamp(l, 16, 4096) : 256;
+            foreach (var line in Probe.Dump((IntPtr)(long)addr, len))
+                Console.WriteLine($"[WeaponRestrict:probe] {line}");
+            return;
+        }
+        foreach (var line in Probe.Run())
+            Console.WriteLine($"[WeaponRestrict:probe] {line}");
     }
 
     // Command: css_knife_toggle <0|1>

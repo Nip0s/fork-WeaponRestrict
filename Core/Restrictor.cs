@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Modules.Memory;
@@ -50,11 +51,32 @@ internal sealed class Restrictor : IDisposable
         return true;
     }
 
+    // CanAcquire без первых 8 байт пролога (push rbp; mov rbp,rsp; push r15; push r14).
+    // utils.so со строкой "CanAcquire" в addons/configs/signatures.ini перехватывает функцию раньше
+    // CSS и переписывает её начало. Сигнатура из gamedata CSS в живой памяти тогда не находится,
+    // CSS берёт адрес из копии файла с диска и ошибается на 0x1000 — хук встаёт в середину чужой
+    // функции (libserver.so 1.41.8.2: 0x159BE80 вместо 0x159CE80) и не вызывается никогда.
+    // С пропуском переписанных байт поиск по живой памяти находит настоящую функцию,
+    // и хук CSS встаёт поверх перехвата utils (тот продолжает работать — вызов идёт дальше по цепочке).
+    private const string CanAcquireLiveSig =
+        "? ? ? ? ? ? ? ? 49 89 F6 41 55 41 54 49 89 CC 53 48 89 FB 48 83 EC ? 4C 8B 6F 38";
+    private static readonly byte[] CanAcquireCheck = { 0x49, 0x89, 0xF6, 0x41, 0x55, 0x41, 0x54, 0x49, 0x89, 0xCC };
+
+    private readonly MemoryFunctionWithReturn<CCSPlayer_ItemServices, CEconItemView, AcquireMethod, IntPtr, AcquireResult>? _canAcquire;
+
     public Restrictor(WeaponRestrict plugin)
     {
         _plugin = plugin;
-        VirtualFunctions.CCSPlayer_ItemServices_CanAcquireFunc.Hook(OnWeaponCanAcquire, HookMode.Pre);
-        Console.WriteLine("[WeaponRestrict] Хук CCSPlayer_ItemServices::CanAcquire установлен");
+        _canAcquire = ResolveCanAcquire();
+        if (_canAcquire != null)
+        {
+            _canAcquire.Hook(OnWeaponCanAcquire, HookMode.Pre);
+            Console.WriteLine("[WeaponRestrict] Хук CCSPlayer_ItemServices::CanAcquire установлен");
+        }
+        else
+        {
+            Console.WriteLine("[WeaponRestrict] CanAcquire не найден — хук не поставлен, ограничения только по событию получения оружия");
+        }
 
         plugin.RegisterEventHandler<EventItemPurchase>(OnItemPurchase);
         plugin.RegisterEventHandler<EventItemPickup>(OnItemPickup);
@@ -62,7 +84,49 @@ internal sealed class Restrictor : IDisposable
 
     public void Dispose()
     {
-        VirtualFunctions.CCSPlayer_ItemServices_CanAcquireFunc.Unhook(OnWeaponCanAcquire, HookMode.Pre);
+        _canAcquire?.Unhook(OnWeaponCanAcquire, HookMode.Pre);
+    }
+
+    /// <summary>
+    /// Функция CanAcquire, найденная так, чтобы хук гарантированно встал на неё, а не рядом.
+    /// Каждый адрес сверяется с ожидаемыми байтами перед тем, как на него вешать хук.
+    /// </summary>
+    private static MemoryFunctionWithReturn<CCSPlayer_ItemServices, CEconItemView, AcquireMethod, IntPtr, AcquireResult>? ResolveCanAcquire()
+    {
+        if (OperatingSystem.IsWindows())
+            return VirtualFunctions.CCSPlayer_ItemServices_CanAcquireFunc;
+
+        var addr = FindSig(CanAcquireLiveSig);
+        if (addr != IntPtr.Zero && BytesAt(addr + 8, CanAcquireCheck))
+            return new MemoryFunctionWithReturn<CCSPlayer_ItemServices, CEconItemView, AcquireMethod, IntPtr, AcquireResult>(CanAcquireLiveSig);
+
+        // Другая версия игры: сигнатура из gamedata CSS, но тоже только после проверки байтов.
+        var gdSig = GameData.GetSignature("CCSPlayer_ItemServices_CanAcquire");
+        addr = FindSig(gdSig);
+        var head = gdSig.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(8)
+            .Select(t => t == "?" ? (byte?)null : Convert.ToByte(t, 16)).ToArray();
+        if (addr != IntPtr.Zero && BytesAt(addr, head))
+            return VirtualFunctions.CCSPlayer_ItemServices_CanAcquireFunc;
+
+        return null;
+    }
+
+    private static IntPtr FindSig(string sig)
+    {
+        try { return NativeAPI.FindSignature(Addresses.ServerPath, sig); }
+        catch { return IntPtr.Zero; }
+    }
+
+    private static bool BytesAt(IntPtr addr, byte[] expected) =>
+        BytesAt(addr, expected.Select(b => (byte?)b).ToArray());
+
+    private static bool BytesAt(IntPtr addr, byte?[] expected)
+    {
+        var live = new byte[expected.Length];
+        Marshal.Copy(addr, live, 0, live.Length);
+        for (var i = 0; i < expected.Length; i++)
+            if (expected[i] is { } e && live[i] != e) return false;
+        return true;
     }
 
     private static bool SeenRecently(ulong steamId, string weapon, int windowMs)
